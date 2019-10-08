@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<title>Canser data visualization by Oleg Lesota</title>
+		<style>
+	
+			body {
+				margin: auto;
+				width: 1200px;
+				font: 12px arial;
+			}
+
+		</style>
+	</head>
+	<body>
+		
+		<svg class="mutationChart"></svg>
+		<svg class="chromosomeChart"></svg>
+		<script src="https://d3js.org/d3.v5.min.js"></script>
+		<script>
+
+			const canserSampleUrl = "https://dcc.icgc.org/api/v1/projects/GBM-US/mutations?field=id,mutation,type,chromosome,start,end&size=100&order=desc";
+			const testJson = "test.json";
+
+			const PLOT_WIDTH = 560;
+			const PLOT_HEIGHT = 500;
+
+			let chromosomeDict = new Set();
+			let chromosomeFilter = new Set();
+			let mutationDict = new Set();
+			let mutationFilter = new Set();
+
+			// 12 colors from colorbrewer2.org
+			let colors = ['#8dd3c7','#ffffb3','#bebeda','#fb8072','#80b1d3','#fdb462','#b3de69','#fccde5','#d9d9d9','#bc80bd','#ccebc5','#ffed6f'];
+			let mutationColorDict = {};
+
+			let margin = {top: 20, right: 30, bottom: 30, left: 40};
+			let width = PLOT_WIDTH - margin.right - margin.left;
+			let height = PLOT_HEIGHT - margin.top - margin.bottom;
+
+			function setDictionaries(dataJson){
+				for (let i = 0; i < dataJson.length; i++) {
+					chromosomeDict.add(dataJson[i].chromosome);
+					mutationDict.add(dataJson[i].mutation);
+				}
+
+				let i = 0;
+				let numberOfColors = colors.length;
+				let setItertor = mutationDict.values();
+
+				while (true) {
+					let mutationId = setItertor.next().value;
+					if (mutationId !== undefined) { //check with typeof ?
+						if (i < numberOfColors) {
+							mutationColorDict[mutationId] = colors[i];
+						}
+						else {
+							mutationColorDict[setItertor.value] = "#111111";
+						}
+						i++;
+					}
+					else {
+						return;
+					}
+				}
+			}
+
+			function resetFilters(){
+				chromosomeFilter = new Set(chromosomeDict);
+				mutationFilter = new Set(mutationDict);
+
+				renderMutationGraph(data);
+				renderChromosomeGraph(data);
+			}
+
+			function updateChromosomeFilter(d){
+				if (chromosomeFilter.has(d.key)) {
+					chromosomeFilter.delete(d.key)
+				}
+				else {
+					chromosomeFilter.add(d.key)
+				}
+				renderMutationGraph(data);
+				renderChromosomeGraph(data);
+			}
+
+			function updateMutationFilter(d){
+				if (mutationFilter.has(d.key)) {
+					mutationFilter.delete(d.key);
+					console.log("removed", d.key)
+				}
+				else {
+					mutationFilter.add(d.key);
+					console.log("added", d.key)
+				}
+				renderMutationGraph(data);
+				renderChromosomeGraph(data);
+			}
+
+			// Mutation axis
+			let xM = d3.scaleBand()
+				.range([0, width])
+				.padding(0.1);
+			let yM = d3.scaleLinear()
+				.range([height, 0]);
+
+			// Chromosome axis
+			let xC = d3.scaleBand()
+				.range([0, width])
+				.padding(0.1);
+			let yC = d3.scaleLinear()
+				.range([height, 0]);
+
+			let mutationCanvas = d3.select(".mutationChart")
+					.attr("width", PLOT_WIDTH)
+					.attr("height", PLOT_HEIGHT)
+				  .append("g")
+					.attr("transform", "translate("+margin.left+","+margin.top+")");
+
+			let chromosomeCanvas = d3.select(".chromosomeChart")
+					.attr("width", PLOT_WIDTH)
+					.attr("height", PLOT_HEIGHT)
+				  .append("g")
+					.attr("transform", "translate("+margin.left+","+margin.top+")");
+
+			function renderMutationGraph(data){
+
+				mutationCanvas.selectAll("*").remove();
+
+				let totalMutations = d3.nest()
+					.key(function(d) { return d.mutation; })
+					.rollup(function(v) { return v.length; })
+					.entries(data.hits
+						.filter(function (d) { return mutationFilter.has(d.mutation); })
+						.filter(function (d) { return chromosomeFilter.has(d.chromosome); }));
+
+				xM.domain(totalMutations.map(function(d) { return d.key; }));
+				yM.domain([0, d3.max(totalMutations, function(d) { return d.value; })]);
+
+				mutationCanvas.selectAll("rect")
+					.data(totalMutations)
+					.enter().append("rect")
+						.attr("x", function(d) { return xM(d.key); })
+						.attr("width", xM.bandwidth())
+						.attr("y", function(d) { return yM(d.value); })
+						.attr("height", function(d) { return height - yM(d.value); })
+						.attr("fill",function(d) { return mutationColorDict[d.key]; })
+						.on("click", updateMutationFilter);
+
+				mutationCanvas.append("g")
+					.attr("transform", "translate(0," + height + ")")
+					.call(d3.axisBottom(xM));
+
+				mutationCanvas.append("g")
+					.call(d3.axisLeft(yM));
+
+			}
+
+			function renderChromosomeGraph(data) {
+
+				chromosomeCanvas.selectAll("*").remove();
+
+				let chromosomeDistribution = d3.nest()
+				//filter chromosomes and mutations
+					.key(function(d) { return d.chromosome; })
+					.rollup(function(v) {return v.length; })
+					.entries(data.hits
+						.filter(function (d) { return mutationFilter.has(d.mutation); })
+						.filter(function (d) { return chromosomeFilter.has(d.chromosome); }));
+
+				//xC.domain(chromosomeDistribution.map(function(d) { return d.key; })); //!!
+				xC.domain([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,"X","Y"]);
+				yC.domain([0, d3.max(chromosomeDistribution, function(d) { return d.value; })]);
+
+				chromosomeCanvas.selectAll("rect")
+					.data(chromosomeDistribution)
+					.enter().append("rect")
+						.attr("x", function(d) { return xC(d.key); })
+						.attr("width", xC.bandwidth())
+						.attr("y", function(d) { return yC(d.value); })
+						.attr("height", function(d) {return height - yC(d.value)})
+						.attr("fill", "#77779f")
+						.on("click", updateChromosomeFilter);
+
+				chromosomeCanvas.append("g")
+					.attr("transform", "translate(0," + height + ")")
+					.call(d3.axisBottom(xC));
+
+				chromosomeCanvas.append("g")
+					.call(d3.axisLeft(yC));
+
+			}
+
+			let data;
+			d3.json(canserSampleUrl).then(indata => {
+				//console.log(data.hits);
+				data = indata;
+				setDictionaries(data.hits);
+				resetFilters();
+				//console.log(chromosomeDict, mutationDict, mutationColorDict);
+				///
+				renderMutationGraph(data);
+				renderChromosomeGraph(data);
+				
+			});
+		</script>
+		<div class="buttons">
+    		<button onclick="resetFilters()">
+        		Reset Filters
+    		</button>
+    	</div>
+	</body>
+</html>
